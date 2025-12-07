@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .loading { background-color: #fff3cd; border-color: #ffeaa7; }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔗 Drug Repurposing Platform - Connection Test</h1>
+    
+    <div class="test-section">
+        <h2>1. Backend Health Check</h2>
+        <button onclick="testHealth()">Test Health Endpoint</button>
+        <div id="health-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Test Drug Analysis API</h2>
+        <button onclick="testAnalysis('Metformin', 'Cancer')">Test: Metformin for Cancer</button>
+        <button onclick="testAnalysis('Aspirin', 'Cardiovascular Disease')">Test: Aspirin for CVD</button>
+        <div id="analysis-result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Test Hugging Face Medicines</h2>
+        <button onclick="testMedicines()">Get All Medicines</button>
+        <button onclick="searchMedicine('Metformin')">Search: Metformin</button>
+        <div id="medicines-result"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:8000';
+
+        function displayResult(elementId, status, data) {
+            const element = document.getElementById(elementId);
+            element.className = status;
+            element.innerHTML = `
+                <h3>Status: ${status.toUpperCase()}</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+        }
+
+        async function testHealth() {
+            const resultDiv = document.getElementById('health-result');
+            resultDiv.className = 'loading';
+            resultDiv.innerHTML = '<p>Testing backend health...</p>';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResult('health-result', 'success', {
+                        message: '✅ Backend is running!',
+                        ...data
+                    });
+                } else {
+                    displayResult('health-result', 'error', {
+                        message: '❌ Backend returned an error',
+                        status: response.status,
+                        ...data
+                    });
+                }
+            } catch (error) {
+                displayResult('health-result', 'error', {
+                    message: '❌ Failed to connect to backend',
+                    error: error.message,
+                    hint: 'Make sure the backend server is running on http://localhost:8000'
+                });
+            }
+        }
+
+        async function testAnalysis(drugName, condition) {
+            const resultDiv = document.getElementById('analysis-result');
+            resultDiv.className = 'loading';
+            resultDiv.innerHTML = `<p>Analyzing ${drugName} for ${condition}...</p>`;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/analyze`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        drug_name: drugName,
+                        target_condition: condition
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResult('analysis-result', 'success', {
+                        message: '✅ Analysis completed!',
+                        drug_name: data.drug_name,
+                        target_condition: data.target_condition,
+                        repurposeability_score: data.repurposeability_score,
+                        research_papers_count: data.research_papers?.length || 0,
+                        clinical_trials_count: data.clinical_trials?.length || 0,
+                        recommendations_count: data.recommendations?.length || 0,
+                        full_data: data
+                    });
+                } else {
+                    displayResult('analysis-result', 'error', {
+                        message: '❌ Analysis failed',
+                        status: response.status,
+                        ...data
+                    });
+                }
+            } catch (error) {
+                displayResult('analysis-result', 'error', {
+                    message: '❌ Failed to perform analysis',
+                    error: error.message
+                });
+            }
+        }
+
+        async function testMedicines() {
+            const resultDiv = document.getElementById('medicines-result');
+            resultDiv.className = 'loading';
+            resultDiv.innerHTML = '<p>Fetching medicines from Hugging Face...</p>';
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/medicines`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResult('medicines-result', 'success', {
+                        message: '✅ Medicines loaded from Hugging Face!',
+                        total_count: data.count,
+                        sample_medicines: data.medicines.slice(0, 5).map(m => ({
+                            name: m.name,
+                            indications: m.indications,
+                            fda_approved: m.fda_approved
+                        }))
+                    });
+                } else {
+                    displayResult('medicines-result', 'error', {
+                        message: '❌ Failed to load medicines',
+                        status: response.status,
+                        ...data
+                    });
+                }
+            } catch (error) {
+                displayResult('medicines-result', 'error', {
+                    message: '❌ Failed to fetch medicines',
+                    error: error.message
+                });
+            }
+        }
+
+        async function searchMedicine(drugName) {
+            const resultDiv = document.getElementById('medicines-result');
+            resultDiv.className = 'loading';
+            resultDiv.innerHTML = `<p>Searching for ${drugName}...</p>`;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/medicines/search?drug_name=${encodeURIComponent(drugName)}`);
+                const data = await response.json();
+                
+                if (response.ok && data.found) {
+                    displayResult('medicines-result', 'success', {
+                        message: `✅ Found ${drugName}!`,
+                        ...data.medicine
+                    });
+                } else {
+                    displayResult('medicines-result', 'error', {
+                        message: `❌ Medicine not found: ${drugName}`,
+                        ...data
+                    });
+                }
+            } catch (error) {
+                displayResult('medicines-result', 'error', {
+                    message: '❌ Failed to search medicine',
+                    error: error.message
+                });
+            }
+        }
+
+        // Auto-run health check on page load
+        window.addEventListener('load', () => {
+            testHealth();
+        });
+    </script>
+</body>
+</html>
+

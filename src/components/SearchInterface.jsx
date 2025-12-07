@@ -35,7 +35,7 @@ export default function SearchInterface({ onSearch, isLoading }) {
                 id="drugName"
                 value={drugName}
                 onChange={(e) => setDrugName(e.target.value)}
-                placeholder="e.g., Metformin, Aspirin, Sildenafil, Thalidomide, Zinc"
+                placeholder="e.g., Metostatin, Dolomet, Amoxicillin, Ibuprocillin, Cefmet"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
                 required
               />
@@ -50,7 +50,7 @@ export default function SearchInterface({ onSearch, isLoading }) {
                 id="targetCondition"
                 value={targetCondition}
                 onChange={(e) => setTargetCondition(e.target.value)}
-                placeholder="e.g., Cancer, PCOS, Cardiovascular Disease, Pulmonary Hypertension, Multiple Myeloma, Diarrhea"
+                placeholder="e.g., Diabetes, Infection, Pain, Depression, Fever, Wound"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition"
                 required
               />
@@ -80,11 +80,11 @@ export default function SearchInterface({ onSearch, isLoading }) {
           <div className="bg-primary-50 border border-primary-200 rounded-lg p-4 mb-4">
             <h3 className="text-sm font-semibold text-primary-900 mb-2">Example Searches:</h3>
             <ul className="text-sm text-primary-700 space-y-1">
-              <li>• <strong>Metformin</strong> for <strong>Cancer</strong> - Well-documented repurposing case</li>
-              <li>• <strong>Metformin</strong> for <strong>PCOS</strong> - FDA-approved off-label use</li>
-              <li>• <strong>Aspirin</strong> for <strong>Cardiovascular Disease</strong> - Established prevention use</li>
-              <li>• <strong>Sildenafil</strong> for <strong>Pulmonary Hypertension</strong> - FDA-approved as Revatio</li>
-              <li>• <strong>Zinc</strong> for <strong>Diarrhea</strong> - WHO-recommended adjunct to ORS</li>
+              <li>• <strong>Metostatin</strong> for <strong>Diabetes</strong> - From your dataset (860 records)</li>
+              <li>• <strong>Dolomet</strong> for <strong>Infection</strong> - From your dataset (837 records)</li>
+              <li>• <strong>Amoxicillin</strong> for <strong>Wound</strong> - From your dataset</li>
+              <li>• <strong>Ibuprocillin</strong> for <strong>Pain</strong> - From your dataset</li>
+              <li>• <strong>Cefmet</strong> for <strong>Depression</strong> - From your dataset (806 records)</li>
             </ul>
           </div>
           <div className="text-center text-sm text-gray-500">

@@ -1,7 +1,7 @@
 """
 AI-Powered Drug Repurposing Analyzer
 Uses OpenAI GPT-4 for intelligent analysis with fallback to rule-based system
-Integrates with Hugging Face datasets for real medicine data
+Integrates with MongoDB Atlas for real medicine data
 """
 
 import os
@@ -11,42 +11,217 @@ from typing import Dict, List, Optional
 from openai import AsyncOpenAI
 import aiohttp
 from .huggingface_service import HuggingFaceMedicineService
+from .medical_supplies_service import MedicalSuppliesService
+from .real_data_service import RealMedicalDataService
+from .multi_agent_orchestrator import MultiAgentOrchestrator
+from .specialized_agents import (
+    ResearchAgent, TrialsAgent, PatentAgent, 
+    RegulatoryAgent, MarketAgent, TrendAgent
+)
+from .database_service import MongoDBService
 
 class AIDrugRepurposingAnalyzer:
     """
     Advanced AI analyzer for drug repurposing opportunities
+    All agents fetch data from MongoDB Atlas
     """
     
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.use_openai = self.openai_api_key is not None
         
-        # Initialize Hugging Face medicine service
+        # Initialize services
         self.hf_service = HuggingFaceMedicineService()
+        self.supplies_service = MedicalSuppliesService()
+        self.real_data_service = RealMedicalDataService()
+        
+        # Initialize MongoDB service (connects to Atlas)
+        self.mongodb_service = MongoDBService()
+        self._init_mongodb()
+        
+        # Initialize specialized agents (now with MongoDB)
+        self.agents_pool = {
+            "research_agent": ResearchAgent(self.real_data_service, self.mongodb_service),
+            "trials_agent": TrialsAgent(self.real_data_service, self.mongodb_service),
+            "patent_agent": PatentAgent(),
+            "regulatory_agent": RegulatoryAgent(self.real_data_service, self.mongodb_service),
+            "market_agent": MarketAgent(self.mongodb_service),
+            "trend_agent": TrendAgent(self.mongodb_service)
+        }
+        
+        # Initialize multi-agent orchestrator
+        self.orchestrator = MultiAgentOrchestrator(self.agents_pool)
         
         if self.use_openai:
             self.client = AsyncOpenAI(api_key=self.openai_api_key)
             print("✅ OpenAI API initialized")
         else:
-            print("⚠️  OpenAI API key not found, using intelligent fallback system")
+            print("⚠️  OpenAI API key not found, using multi-agent system")
         
-        print("✅ Hugging Face medicine service initialized")
+        print("✅ Multi-Agent System Ready - All agents connected to MongoDB Atlas")
+    
+    def _init_mongodb(self):
+        """Initialize MongoDB connection (sync only at startup)"""
+        if self.mongodb_service.connect_sync():
+            print("✅ MongoDB Atlas connected for AI Analyzer")
+        else:
+            print("⚠️ MongoDB connection failed - agents will use fallback data")
+    
+    async def _ensure_async_connection(self):
+        """Ensure async connection is established (called before analysis)"""
+        if not self.mongodb_service.async_client:
+            await self.mongodb_service.connect_async()
     
     async def analyze(self, drug_name: str, target_condition: str) -> Dict:
         """
-        Perform comprehensive AI-powered analysis with Hugging Face data
+        Perform comprehensive AI-powered analysis using Multi-Agent Orchestration
         """
-        # First, fetch medicine data from Hugging Face
-        medicine_data = await self.hf_service.search_medicine(drug_name)
+        # Ensure async MongoDB connection
+        await self._ensure_async_connection()
         
-        if self.use_openai:
-            try:
-                return await self._analyze_with_openai(drug_name, target_condition, medicine_data)
-            except Exception as e:
-                print(f"OpenAI analysis failed: {e}, falling back to intelligent system")
-                return await self._analyze_with_intelligent_system(drug_name, target_condition, medicine_data)
+        print(f"\n{'='*60}")
+        print(f"🚀 MULTI-AGENT DRUG REPURPOSING ANALYSIS")
+        print(f"{'='*60}")
+        print(f"Drug: {drug_name}")
+        print(f"Condition: {target_condition}")
+        print(f"{'='*60}\n")
+        
+        # Use Multi-Agent Orchestrator
+        result = await self.orchestrator.orchestrate(drug_name, target_condition)
+        
+        # Add medical supplies to the result
+        if result.get("drug_name") and result.get("target_condition"):
+            medical_supplies = self._get_required_supplies(
+                result["drug_name"],
+                result["target_condition"],
+                None,
+                {"score": result.get("repurposeability_score", 65)}
+            )
+            result["medical_supplies"] = medical_supplies
+        
+        print(f"\n{'='*60}")
+        print(f"✅ ANALYSIS COMPLETE")
+        print(f"Score: {result.get('repurposeability_score', 0)}/100")
+        print(f"Verdict: {result.get('verdict', 'N/A')}")
+        print(f"{'='*60}\n")
+        
+        return result
+    
+    async def _analyze_with_real_data(self, drug_name: str, target_condition: str, real_data: Dict, medicine_data: Optional[Dict]) -> Dict:
+        """
+        Perform analysis using REAL data from FDA, ClinicalTrials.gov, etc.
+        """
+        fda_data = real_data.get("fda_data")
+        clinical_trials = real_data.get("clinical_trials", [])
+        
+        # Generate score based on real data
+        score = 50  # Base score
+        evidence_level = "preliminary"
+        
+        if fda_data:
+            score += 30  # FDA approved
+            evidence_level = "strong"
+        
+        if clinical_trials:
+            score += len(clinical_trials) * 5  # More trials = higher score
+            score = min(score, 95)  # Cap at 95
+            if len(clinical_trials) >= 3:
+                evidence_level = "very strong"
+        
+        # Extract mechanisms from FDA data
+        mechanisms = []
+        if fda_data and fda_data.get("mechanism"):
+            mechanisms.append(fda_data["mechanism"][:100])
+        
+        # Generate research papers from real PubMed if available
+        research_papers = await self._generate_real_research_papers(drug_name, target_condition)
+        
+        # Get required medical supplies
+        medical_supplies = self._get_required_supplies(drug_name, target_condition, fda_data, {"score": score})
+        
+        return {
+            "drug_name": drug_name,
+            "target_condition": target_condition,
+            "repurposeability_score": score,
+            "research_papers": research_papers,
+            "clinical_trials": [self._format_clinical_trial(ct) for ct in clinical_trials],
+            "patents": self._generate_patents(drug_name, target_condition, {"known_repurposing": True}),
+            "market_feasibility": self._generate_market_feasibility({"score": score, "evidence_level": evidence_level, "known_repurposing": fda_data is not None}),
+            "recommendations": self._generate_recommendations_from_real_data(drug_name, target_condition, real_data, score),
+            "medical_supplies": medical_supplies,
+            "analysis_metadata": {
+                "evidence_level": evidence_level,
+                "mechanisms": mechanisms if mechanisms else ["See FDA label"],
+                "safety_profile": "FDA approved" if fda_data else "Unknown",
+                "regulatory_status": f"FDA approved for {', '.join(fda_data['indications'][:2])}" if fda_data else "Investigational",
+                "data_sources": real_data.get("data_sources", []),
+                "real_data_used": True
+            }
+        }
+    
+    def _format_clinical_trial(self, trial: Dict) -> Dict:
+        """
+        Format clinical trial data for response
+        """
+        return {
+            "id": trial.get("id", "NCT00000000"),
+            "title": trial.get("title", ""),
+            "status": trial.get("status", "Unknown"),
+            "phase": trial.get("phase", "Not specified"),
+            "participants": trial.get("enrollment", 0),
+            "completion_date": trial.get("completion_date", "Not specified")
+        }
+    
+    def _generate_recommendations_from_real_data(self, drug_name: str, target_condition: str, real_data: Dict, score: int) -> List[str]:
+        """
+        Generate recommendations based on real data
+        """
+        recommendations = []
+        
+        fda_data = real_data.get("fda_data")
+        clinical_trials = real_data.get("clinical_trials", [])
+        
+        if fda_data:
+            recommendations.append(f"✅ {drug_name} is FDA-approved with established safety profile")
+            if fda_data.get("indications"):
+                recommendations.append(f"Current FDA-approved indications: {', '.join(fda_data['indications'][:2])}")
+        
+        if clinical_trials:
+            active_trials = [ct for ct in clinical_trials if "recruiting" in ct.get("status", "").lower() or "active" in ct.get("status", "").lower()]
+            if active_trials:
+                recommendations.append(f"✅ {len(active_trials)} active clinical trial(s) investigating this use")
+        
+        if score >= 80:
+            recommendations.append(f"🌟 High repurposing potential (Score: {score}/100)")
+        elif score >= 60:
+            recommendations.append(f"💡 Moderate repurposing potential (Score: {score}/100) - requires further investigation")
         else:
-            return await self._analyze_with_intelligent_system(drug_name, target_condition, medicine_data)
+            recommendations.append(f"⚠️  Limited evidence (Score: {score}/100) - extensive research needed")
+        
+        recommendations.append("Data sources: " + ", ".join(real_data.get("data_sources", ["Unknown"])))
+        
+        return recommendations
+    
+    async def _generate_real_research_papers(self, drug_name: str, target_condition: str) -> List[Dict]:
+        """
+        Fetch real research papers from PubMed
+        """
+        try:
+            papers = await self.real_data_service.search_pubmed_papers(drug_name, target_condition)
+            if papers:
+                return [{
+                    "title": p["title"],
+                    "authors": p["authors"],
+                    "journal": p["journal"],
+                    "year": int(p["year"]) if p["year"].isdigit() else 2023,
+                    "relevance": 90,  # From PubMed, highly relevant
+                    "summary": f"Real research from PubMed (PMID: {p['pmid']}). This is genuine published research on {drug_name} for {target_condition}."
+                } for p in papers]
+        except:
+            pass
+        
+        # Fallback to generated if PubMed fails
+        return self._generate_research_papers(drug_name, target_condition, {"known_repurposing": True, "evidence_level": "strong", "score": 75})
     
     async def _analyze_with_openai(self, drug_name: str, target_condition: str, medicine_data: Optional[Dict] = None) -> Dict:
         """
@@ -176,6 +351,9 @@ If it's a novel combination, provide a preliminary but realistic assessment."""
             # Analyze the pair
             analysis = self._analyze_drug_condition_pair(drug_lower, condition_lower)
         
+        # Get required medical supplies
+        medical_supplies = self._get_required_supplies(drug_name, target_condition, medicine_data, analysis)
+        
         return {
             "drug_name": drug_name,
             "target_condition": target_condition,
@@ -185,6 +363,7 @@ If it's a novel combination, provide a preliminary but realistic assessment."""
             "market_feasibility": self._generate_market_feasibility(analysis),
             "repurposeability_score": analysis["score"],
             "recommendations": self._generate_recommendations(drug_name, target_condition, analysis),
+            "medical_supplies": medical_supplies,  # New field
             "analysis_metadata": {
                 "evidence_level": analysis["evidence_level"],
                 "mechanisms": analysis["mechanisms"],
@@ -192,6 +371,63 @@ If it's a novel combination, provide a preliminary but realistic assessment."""
                 "regulatory_status": analysis["regulatory_status"]
             }
         }
+    
+    def _get_required_supplies(self, drug_name: str, target_condition: str, medicine_data: Optional[Dict], analysis: Dict) -> Dict:
+        """
+        Determine required medical supplies for drug administration and monitoring
+        """
+        required_supplies = []
+        
+        # Get supplies based on drug class if available
+        if medicine_data and "class" in medicine_data:
+            class_supplies = self.supplies_service.get_supplies_for_drug_class(medicine_data["class"])
+            required_supplies.extend(class_supplies)
+        
+        # Get supplies based on condition
+        condition_supplies = self.supplies_service.get_supplies_for_condition(target_condition)
+        required_supplies.extend(condition_supplies)
+        
+        # Determine administration route based on drug name
+        if any(word in drug_name.lower() for word in ["insulin", "injection", "injectable"]):
+            route_supplies = self.supplies_service.get_supplies_for_drug_route("injectable")
+            required_supplies.extend(route_supplies)
+        
+        # Remove duplicates
+        unique_supplies = []
+        seen_ids = set()
+        for supply in required_supplies:
+            if supply["component_id"] not in seen_ids:
+                unique_supplies.append(supply)
+                seen_ids.add(supply["component_id"])
+        
+        # Calculate costs
+        cost_info = self.supplies_service.calculate_supply_cost(unique_supplies)
+        
+        return {
+            "required_supplies": unique_supplies[:10],  # Limit to top 10 most relevant
+            "cost_analysis": cost_info,
+            "supply_recommendations": self._generate_supply_recommendations(unique_supplies, cost_info)
+        }
+    
+    def _generate_supply_recommendations(self, supplies: List[Dict], cost_info: Dict) -> List[str]:
+        """
+        Generate recommendations about medical supplies
+        """
+        recommendations = []
+        
+        if cost_info["all_available"]:
+            recommendations.append(f"All required supplies are in stock (₹{cost_info['total_cost_inr']} total cost)")
+        else:
+            recommendations.append("Some supplies may require restocking before treatment")
+        
+        if cost_info["low_stock_items"] > 0:
+            recommendations.append(f"{cost_info['low_stock_items']} supply items have low stock - consider reordering")
+        
+        if supplies:
+            categories = set(s["category"] for s in supplies)
+            recommendations.append(f"Required supply categories: {', '.join(categories)}")
+        
+        return recommendations
     
     def _analyze_drug_condition_pair_with_data(self, drug_lower: str, condition_lower: str, medicine_data: Dict) -> Dict:
         """
