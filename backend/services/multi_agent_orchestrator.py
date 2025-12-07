@@ -1,6 +1,12 @@
 """
 Multi-Agent Orchestrator for Drug Repurposing Analysis
 Coordinates specialized agents running in parallel
+
+CASE TYPES:
+- Case 1 (DRUG_ONLY): Have drug/molecule but no target disease → Find potential diseases
+- Case 2 (DISEASE_ONLY): Know disease but no drug → Find best drug candidates  
+- Case 3 (DRUG_AND_DISEASE): Have both drug and disease → Full repurposing analysis
+- Case 4 (INGREDIENT_ANALYSIS): Analyze drug ingredients for other uses
 """
 
 import asyncio
@@ -10,11 +16,13 @@ import json
 
 
 class CaseType(Enum):
-    """Case detection types"""
-    SINGLE_DRUG_DISEASE = 1  # Normal drug + disease input
-    DRUG_ONLY = 2            # Drug only, find conditions
-    DISEASE_ONLY = 3         # Disease only, find drugs
-    TREND_INTELLIGENCE = 4   # No input, market trends
+    """
+    Case detection types based on user input
+    """
+    DRUG_ONLY = 1            # Case 1: Have drug, find diseases
+    DISEASE_ONLY = 2         # Case 2: Have disease, find drugs
+    DRUG_AND_DISEASE = 3     # Case 3: Have both, full analysis
+    INGREDIENT_ANALYSIS = 4  # Case 4: Analyze drug ingredients
 
 
 class MultiAgentOrchestrator:
@@ -29,34 +37,291 @@ class MultiAgentOrchestrator:
         self.agent_results = {}
         print("✅ Multi-Agent Orchestrator initialized")
     
-    def detect_case(self, drug_name: Optional[str], target_condition: Optional[str]) -> CaseType:
+    def detect_case(self, drug_name: Optional[str], target_condition: Optional[str], 
+                     analyze_ingredients: bool = False) -> CaseType:
         """
-        Case Detection Logic (from diagram)
+        Case Detection Logic:
+        - Case 1: Drug only → Find potential diseases
+        - Case 2: Disease only → Find best drug candidates
+        - Case 3: Both drug and disease → Full repurposing analysis
+        - Case 4: Ingredient analysis mode → Analyze drug components
         """
-        if drug_name and target_condition:
-            return CaseType.SINGLE_DRUG_DISEASE
+        if analyze_ingredients and drug_name:
+            return CaseType.INGREDIENT_ANALYSIS
+        elif drug_name and target_condition:
+            return CaseType.DRUG_AND_DISEASE
         elif drug_name and not target_condition:
             return CaseType.DRUG_ONLY
         elif not drug_name and target_condition:
             return CaseType.DISEASE_ONLY
         else:
-            return CaseType.TREND_INTELLIGENCE
+            # Default to drug analysis if nothing provided
+            return CaseType.DRUG_ONLY
     
-    async def orchestrate(self, drug_name: Optional[str], target_condition: Optional[str]) -> Dict:
+    async def orchestrate(self, drug_name: Optional[str], target_condition: Optional[str],
+                         analyze_ingredients: bool = False) -> Dict:
         """
-        Main orchestration method - runs agents in parallel
+        Main orchestration method - runs agents based on case type
+        
+        Cases:
+        - Case 1 (DRUG_ONLY): Find diseases for a drug
+        - Case 2 (DISEASE_ONLY): Find drugs for a disease
+        - Case 3 (DRUG_AND_DISEASE): Full repurposing analysis
+        - Case 4 (INGREDIENT_ANALYSIS): Analyze drug ingredients
         """
         # Step 1: Case Detection
-        self.case_type = self.detect_case(drug_name, target_condition)
+        self.case_type = self.detect_case(drug_name, target_condition, analyze_ingredients)
         print(f"🔍 Case Type Detected: {self.case_type.name}")
         
-        # Step 2: Multi-Agent Execution (Parallel)
+        # Step 2: Execute appropriate flow based on case
         print("🤖 Launching Multi-Agent System...")
         
-        if self.case_type == CaseType.TREND_INTELLIGENCE:
-            return await self._execute_trend_analytics()
+        if self.case_type == CaseType.DRUG_ONLY:
+            # Case 1: Have drug, find diseases
+            return await self._execute_case1_drug_only(drug_name)
+        elif self.case_type == CaseType.DISEASE_ONLY:
+            # Case 2: Have disease, find drugs
+            return await self._execute_case2_disease_only(target_condition)
+        elif self.case_type == CaseType.DRUG_AND_DISEASE:
+            # Case 3: Have both, full analysis
+            return await self._execute_case3_full_analysis(drug_name, target_condition)
+        elif self.case_type == CaseType.INGREDIENT_ANALYSIS:
+            # Case 4: Analyze ingredients
+            return await self._execute_case4_ingredient_analysis(drug_name)
         else:
-            return await self._execute_multi_agent_flow(drug_name, target_condition)
+            return await self._execute_case3_full_analysis(drug_name, target_condition)
+    
+    # ==================== CASE 1: DRUG ONLY ====================
+    async def _execute_case1_drug_only(self, drug_name: str) -> Dict:
+        """
+        Case 1: Have drug/molecule but no target disease
+        → Find potential diseases this drug could treat
+        """
+        print(f"  📊 Case 1: Finding potential diseases for {drug_name}")
+        
+        # Get drug details from MongoDB
+        research_agent = self.agents_pool.get("research_agent")
+        db = research_agent.db if research_agent else None
+        
+        drug_data = {}
+        potential_diseases = []
+        
+        if db:
+            # Get drug info from database
+            drug_data = await db.get_drug_details(drug_name)
+            
+            if drug_data:
+                # Current indication is already known
+                current_indications = drug_data.get("indications", [])
+                category = drug_data.get("category", "")
+                
+                # Find other drugs in same category to suggest diseases
+                similar_drugs = await db.search_by_category(category, limit=20)
+                
+                # Collect all indications from similar drugs
+                all_indications = set()
+                for drug in similar_drugs:
+                    indication = drug.get("Indication", "")
+                    if indication:
+                        all_indications.add(indication)
+                
+                # Remove current indications to find NEW potential uses
+                for ind in current_indications:
+                    all_indications.discard(ind)
+                
+                potential_diseases = [
+                    {
+                        "disease": ind,
+                        "confidence": 75,
+                        "rationale": f"Other {category} drugs are used for this condition"
+                    }
+                    for ind in list(all_indications)[:10]
+                ]
+        
+        return {
+            "case_type": "CASE_1_DRUG_ONLY",
+            "drug_name": drug_name,
+            "drug_data": drug_data,
+            "current_indications": drug_data.get("indications", []) if drug_data else [],
+            "potential_new_diseases": potential_diseases,
+            "repurposeability_score": 70 if potential_diseases else 40,
+            "verdict": "EXPLORE" if potential_diseases else "LIMITED DATA",
+            "recommendations": [
+                f"🔬 {drug_name} is a {drug_data.get('category', 'Unknown')} drug",
+                f"📋 Current uses: {', '.join(drug_data.get('indications', ['Unknown']))}",
+                f"💡 Found {len(potential_diseases)} potential new disease targets",
+                "🧪 Further research recommended for each potential target"
+            ] if drug_data else [f"⚠️ {drug_name} not found in database"],
+            "analysis_metadata": {
+                "case_type": "DRUG_ONLY",
+                "data_source": "MongoDB Atlas"
+            }
+        }
+    
+    # ==================== CASE 2: DISEASE ONLY ====================
+    async def _execute_case2_disease_only(self, disease: str) -> Dict:
+        """
+        Case 2: Know disease but no drug
+        → Find best drug candidates for this disease
+        """
+        print(f"  📊 Case 2: Finding drug candidates for {disease}")
+        
+        research_agent = self.agents_pool.get("research_agent")
+        db = research_agent.db if research_agent else None
+        
+        drug_candidates = []
+        
+        if db:
+            # Search for drugs that treat this disease
+            drugs = await db.search_by_indication(disease, limit=20)
+            
+            for drug in drugs:
+                drug_candidates.append({
+                    "drug_name": drug.get("Name", "Unknown"),
+                    "category": drug.get("Category", "Unknown"),
+                    "dosage_form": drug.get("Dosage Form", "Unknown"),
+                    "strength": drug.get("Strength", "Unknown"),
+                    "manufacturer": drug.get("Manufacturer", "Unknown"),
+                    "classification": drug.get("Classification", "Unknown"),
+                    "confidence": 90,
+                    "source": "MongoDB Atlas"
+                })
+        
+        # Rank candidates
+        ranked_candidates = sorted(drug_candidates, key=lambda x: x["confidence"], reverse=True)
+        
+        return {
+            "case_type": "CASE_2_DISEASE_ONLY",
+            "target_condition": disease,
+            "drug_candidates": ranked_candidates[:10],
+            "total_candidates_found": len(drug_candidates),
+            "repurposeability_score": 85 if drug_candidates else 30,
+            "verdict": "MULTIPLE OPTIONS" if len(drug_candidates) > 5 else "LIMITED OPTIONS" if drug_candidates else "NO MATCHES",
+            "recommendations": [
+                f"🏥 Disease: {disease}",
+                f"💊 Found {len(drug_candidates)} drug candidates",
+                f"✅ Top candidate: {ranked_candidates[0]['drug_name']}" if ranked_candidates else "❌ No candidates found",
+                "📋 Review each candidate for safety and efficacy"
+            ],
+            "analysis_metadata": {
+                "case_type": "DISEASE_ONLY",
+                "data_source": "MongoDB Atlas",
+                "search_method": "indication_match"
+            }
+        }
+    
+    # ==================== CASE 3: FULL ANALYSIS ====================
+    async def _execute_case3_full_analysis(self, drug_name: str, target_condition: str) -> Dict:
+        """
+        Case 3: Have both drug and disease
+        → Full repurposing analysis with all agents
+        """
+        print(f"  📊 Case 3: Full analysis for {drug_name} → {target_condition}")
+        return await self._execute_multi_agent_flow(drug_name, target_condition)
+    
+    # ==================== CASE 4: INGREDIENT ANALYSIS ====================
+    async def _execute_case4_ingredient_analysis(self, drug_name: str) -> Dict:
+        """
+        Case 4: Analyze drug ingredients for effectiveness in other areas
+        → Break down drug into components and find alternative uses
+        """
+        print(f"  📊 Case 4: Analyzing ingredients of {drug_name}")
+        
+        research_agent = self.agents_pool.get("research_agent")
+        db = research_agent.db if research_agent else None
+        
+        drug_data = {}
+        ingredient_analysis = []
+        alternative_uses = []
+        
+        if db:
+            drug_data = await db.get_drug_details(drug_name)
+            
+            if drug_data:
+                category = drug_data.get("category", "")
+                current_indication = drug_data.get("indications", ["Unknown"])[0] if drug_data.get("indications") else "Unknown"
+                
+                # Analyze based on drug category (ingredient class)
+                ingredient_analysis = [
+                    {
+                        "ingredient_class": category,
+                        "mechanism": self._get_mechanism_for_category(category),
+                        "properties": self._get_properties_for_category(category)
+                    }
+                ]
+                
+                # Find all other uses for this drug category
+                similar_drugs = await db.search_by_category(category, limit=50)
+                
+                indication_counts = {}
+                for drug in similar_drugs:
+                    ind = drug.get("Indication", "")
+                    if ind and ind != current_indication:
+                        indication_counts[ind] = indication_counts.get(ind, 0) + 1
+                
+                # Sort by frequency
+                sorted_indications = sorted(indication_counts.items(), key=lambda x: x[1], reverse=True)
+                
+                alternative_uses = [
+                    {
+                        "indication": ind,
+                        "evidence_count": count,
+                        "confidence": min(95, 50 + count * 5),
+                        "rationale": f"{count} other {category} drugs treat this condition"
+                    }
+                    for ind, count in sorted_indications[:10]
+                ]
+        
+        return {
+            "case_type": "CASE_4_INGREDIENT_ANALYSIS",
+            "drug_name": drug_name,
+            "drug_data": drug_data,
+            "ingredient_analysis": ingredient_analysis,
+            "current_indication": drug_data.get("indications", ["Unknown"])[0] if drug_data and drug_data.get("indications") else "Unknown",
+            "alternative_uses": alternative_uses,
+            "repurposeability_score": 80 if alternative_uses else 50,
+            "verdict": "HIGH REPURPOSING POTENTIAL" if len(alternative_uses) > 5 else "MODERATE POTENTIAL" if alternative_uses else "LIMITED DATA",
+            "recommendations": [
+                f"🧬 Drug: {drug_name}",
+                f"📦 Category: {drug_data.get('category', 'Unknown')}" if drug_data else "",
+                f"💊 Current use: {drug_data.get('indications', ['Unknown'])[0] if drug_data and drug_data.get('indications') else 'Unknown'}",
+                f"🔬 Found {len(alternative_uses)} potential alternative uses",
+                f"✅ Best alternative: {alternative_uses[0]['indication']} ({alternative_uses[0]['confidence']}% confidence)" if alternative_uses else "❌ No alternatives found"
+            ],
+            "analysis_metadata": {
+                "case_type": "INGREDIENT_ANALYSIS",
+                "data_source": "MongoDB Atlas",
+                "analysis_method": "category_based_repurposing"
+            }
+        }
+    
+    def _get_mechanism_for_category(self, category: str) -> str:
+        """Get mechanism of action for drug category"""
+        mechanisms = {
+            "Antibiotic": "Inhibits bacterial cell wall synthesis or protein synthesis",
+            "Antiviral": "Blocks viral replication or entry into cells",
+            "Antifungal": "Disrupts fungal cell membrane integrity",
+            "Antidiabetic": "Regulates glucose metabolism and insulin sensitivity",
+            "Analgesic": "Blocks pain signal transmission",
+            "Anti-inflammatory": "Reduces inflammatory mediators",
+            "Antihypertensive": "Reduces blood pressure through various pathways",
+            "Antihistamine": "Blocks histamine receptors"
+        }
+        return mechanisms.get(category, f"Mechanism specific to {category} class")
+    
+    def _get_properties_for_category(self, category: str) -> List[str]:
+        """Get properties for drug category"""
+        properties = {
+            "Antibiotic": ["Bactericidal", "Bacteriostatic", "Broad/Narrow spectrum"],
+            "Antiviral": ["Viral inhibition", "Immune modulation"],
+            "Antifungal": ["Fungicidal", "Fungistatic"],
+            "Antidiabetic": ["Glucose regulation", "Insulin sensitivity"],
+            "Analgesic": ["Pain relief", "Anti-pyretic"],
+            "Anti-inflammatory": ["COX inhibition", "Cytokine modulation"],
+            "Antihypertensive": ["Vasodilation", "Diuretic effect"],
+            "Antihistamine": ["H1 blocking", "Sedative/Non-sedative"]
+        }
+        return properties.get(category, ["Category-specific properties"])
     
     async def _execute_multi_agent_flow(self, drug_name: str, target_condition: str) -> Dict:
         """
@@ -430,6 +695,9 @@ class MultiAgentOrchestrator:
             # CSV Data (NEW - shows real data from dataset)
             "db_drug_data": research_data.get("db_data"),
             
+            # Drug Usage Information (NEW - comprehensive usage details)
+            "drug_usage_info": self._generate_drug_usage_info(drug_name, target_condition, normalized_data),
+            
             # Recommendations
             "recommendations": self._generate_final_recommendations(decision, normalized_data),
             
@@ -508,6 +776,284 @@ class MultiAgentOrchestrator:
                 recommendations.append(f"✅ Available Forms: {', '.join(str(d) for d in dosage_forms[:3])}")
         
         return recommendations
+    
+    def _generate_drug_usage_info(self, drug_name: str, target_condition: str, normalized_data: Dict) -> Dict:
+        """
+        Generate comprehensive drug usage information including:
+        - Current uses and indications
+        - Dosage information (strength, forms)
+        - Administration details
+        - Safety and classification
+        - Manufacturer information
+        """
+        usage_info = {
+            "drug_name": drug_name,
+            "target_condition": target_condition,
+            "current_uses": [],
+            "dosage_information": {},
+            "administration": {},
+            "safety_info": {},
+            "manufacturers": [],
+            "classification": "",
+            "is_approved_for_condition": False,
+            "usage_evidence": []
+        }
+        
+        # Get drug data from MongoDB
+        research_data = normalized_data.get("research_data", {})
+        db_data = research_data.get("db_data", {})
+        
+        if db_data and isinstance(db_data, dict):
+            # Current uses/indications
+            indications = db_data.get("indications", [])
+            if indications:
+                usage_info["current_uses"] = indications
+                usage_info["is_approved_for_condition"] = target_condition.lower() in [ind.lower() for ind in indications]
+            
+            # Dosage information
+            strengths = db_data.get("strengths", [])
+            dosage_forms = db_data.get("dosage_forms", [])
+            
+            if strengths or dosage_forms:
+                usage_info["dosage_information"] = {
+                    "available_strengths": strengths[:10] if strengths else [],  # Limit to 10
+                    "available_forms": dosage_forms if dosage_forms else [],
+                    "recommended_strength": self._recommend_dosage_strength(strengths, dosage_forms),
+                    "dosage_guidance": self._generate_dosage_guidance(dosage_forms, target_condition)
+                }
+            
+            # Administration details
+            if dosage_forms:
+                usage_info["administration"] = {
+                    "available_routes": dosage_forms,
+                    "recommended_route": self._recommend_administration_route(dosage_forms, target_condition),
+                    "administration_instructions": self._generate_administration_instructions(dosage_forms, target_condition)
+                }
+            
+            # Classification and safety
+            classification = db_data.get("classification", "")
+            category = db_data.get("category", "")
+            
+            usage_info["classification"] = classification
+            usage_info["safety_info"] = {
+                "classification": classification,
+                "category": category,
+                "prescription_required": "Prescription" in classification if classification else False,
+                "otc_available": "Over-the-Counter" in classification if classification else False,
+                "safety_notes": self._generate_safety_notes(category, classification)
+            }
+            
+            # Manufacturers
+            manufacturers = db_data.get("manufacturers", [])
+            if manufacturers:
+                usage_info["manufacturers"] = manufacturers[:5]  # Top 5 manufacturers
+        
+        # Check if already approved for this condition
+        trials_data = normalized_data.get("trials_data", {})
+        db_evidence = trials_data.get("db_evidence", {})
+        if db_evidence.get("already_approved"):
+            usage_info["is_approved_for_condition"] = True
+            usage_info["usage_evidence"].append({
+                "type": "Database Approval",
+                "source": "MongoDB Atlas",
+                "message": f"{drug_name} is documented as approved for {target_condition}",
+                "confidence": "High"
+            })
+        
+        # Add clinical trial evidence
+        trials = trials_data.get("trials", [])
+        if trials:
+            approved_trials = [t for t in trials if t.get("status", "").lower() == "approved"]
+            if approved_trials:
+                usage_info["usage_evidence"].append({
+                    "type": "Clinical Trial",
+                    "source": "ClinicalTrials.gov",
+                    "message": f"Found {len(approved_trials)} approved trial(s) for this indication",
+                    "confidence": "High"
+                })
+        
+        # Generate usage summary
+        usage_info["usage_summary"] = self._generate_usage_summary(usage_info)
+        
+        return usage_info
+    
+    def _recommend_dosage_strength(self, strengths: List[str], forms: List[str]) -> str:
+        """Recommend appropriate dosage strength based on available options"""
+        if not strengths:
+            return "Consult healthcare provider for dosage"
+        
+        # Try to find a common/moderate strength
+        numeric_strengths = []
+        for s in strengths:
+            try:
+                # Extract number from "XXX mg"
+                num = int(''.join(filter(str.isdigit, s.split()[0])))
+                numeric_strengths.append((num, s))
+            except:
+                pass
+        
+        if numeric_strengths:
+            # Return median strength
+            numeric_strengths.sort()
+            median_idx = len(numeric_strengths) // 2
+            return numeric_strengths[median_idx][1]
+        
+        return strengths[0] if strengths else "Dosage to be determined"
+    
+    def _generate_dosage_guidance(self, forms: List[str], condition: str) -> str:
+        """Generate dosage guidance based on form and condition"""
+        if not forms:
+            return "Dosage should be determined by a healthcare provider based on patient condition"
+        
+        guidance = []
+        
+        if "Tablet" in forms or "Capsule" in forms:
+            guidance.append("Oral administration: Take with or without food as directed by physician")
+        
+        if "Injection" in forms:
+            guidance.append("Injectable form: Administer by healthcare professional only")
+        
+        if "Cream" in forms or "Ointment" in forms:
+            guidance.append("Topical application: Apply to affected area as directed")
+        
+        if "Syrup" in forms or "Drops" in forms:
+            guidance.append("Liquid form: Measure dosage carefully using provided device")
+        
+        if "Inhaler" in forms:
+            guidance.append("Inhalation: Use as directed, typically 1-2 puffs as needed")
+        
+        return ". ".join(guidance) if guidance else "Follow healthcare provider's instructions"
+    
+    def _recommend_administration_route(self, forms: List[str], condition: str) -> str:
+        """Recommend best administration route for the condition"""
+        # Priority: condition-specific recommendations
+        condition_lower = condition.lower()
+        
+        if "infection" in condition_lower or "wound" in condition_lower:
+            if "Cream" in forms or "Ointment" in forms:
+                return "Topical"
+            elif "Injection" in forms:
+                return "Intramuscular/Intravenous"
+        
+        if "diabetes" in condition_lower or "pain" in condition_lower:
+            if "Tablet" in forms:
+                return "Oral"
+            elif "Injection" in forms:
+                return "Subcutaneous/Intramuscular"
+        
+        if "respiratory" in condition_lower or "asthma" in condition_lower:
+            if "Inhaler" in forms:
+                return "Inhalation"
+        
+        # Default recommendation
+        if "Tablet" in forms or "Capsule" in forms:
+            return "Oral"
+        elif forms:
+            return forms[0]
+        
+        return "To be determined by healthcare provider"
+    
+    def _generate_administration_instructions(self, forms: List[str], condition: str) -> List[str]:
+        """Generate detailed administration instructions"""
+        instructions = []
+        
+        if "Tablet" in forms:
+            instructions.append("• Swallow tablet whole with water")
+            instructions.append("• Do not crush or chew unless directed")
+            instructions.append("• Take at the same time each day for consistency")
+        
+        if "Capsule" in forms:
+            instructions.append("• Swallow capsule whole with water")
+            instructions.append("• Do not open capsule contents")
+        
+        if "Injection" in forms:
+            instructions.append("• Administer by trained healthcare professional only")
+            instructions.append("• Rotate injection sites to prevent tissue damage")
+            instructions.append("• Follow aseptic technique")
+        
+        if "Cream" in forms or "Ointment" in forms:
+            instructions.append("• Clean and dry affected area before application")
+            instructions.append("• Apply thin layer, gently rub in")
+            instructions.append("• Wash hands after application")
+        
+        if "Inhaler" in forms:
+            instructions.append("• Shake inhaler well before use")
+            instructions.append("• Breathe out fully, then inhale medication")
+            instructions.append("• Hold breath for 10 seconds after inhalation")
+        
+        if "Syrup" in forms:
+            instructions.append("• Use provided measuring device")
+            instructions.append("• Shake well before use")
+            instructions.append("• Store in refrigerator if required")
+        
+        if not instructions:
+            instructions.append("• Follow healthcare provider's specific instructions")
+            instructions.append("• Read medication label carefully")
+            instructions.append("• Do not exceed recommended dosage")
+        
+        return instructions
+    
+    def _generate_safety_notes(self, category: str, classification: str) -> List[str]:
+        """Generate safety notes based on drug category and classification"""
+        notes = []
+        
+        if "Prescription" in classification:
+            notes.append("⚠️ Prescription medication - requires doctor's prescription")
+            notes.append("⚠️ Do not share medication with others")
+        
+        if "Over-the-Counter" in classification:
+            notes.append("✅ Available over-the-counter")
+            notes.append("⚠️ Still consult healthcare provider for proper usage")
+        
+        if category:
+            if "Antibiotic" in category:
+                notes.append("⚠️ Complete full course even if symptoms improve")
+                notes.append("⚠️ Do not use for viral infections")
+            
+            if "Antidiabetic" in category:
+                notes.append("⚠️ Monitor blood glucose levels regularly")
+                notes.append("⚠️ Risk of hypoglycemia - carry glucose source")
+            
+            if "Antiviral" in category:
+                notes.append("⚠️ Start treatment as early as possible")
+                notes.append("⚠️ Complete full course as prescribed")
+        
+        if not notes:
+            notes.append("⚠️ Consult healthcare provider before use")
+            notes.append("⚠️ Report any adverse effects immediately")
+        
+        return notes
+    
+    def _generate_usage_summary(self, usage_info: Dict) -> str:
+        """Generate a comprehensive usage summary"""
+        summary_parts = []
+        
+        drug_name = usage_info.get("drug_name", "This drug")
+        target_condition = usage_info.get("target_condition", "the condition")
+        
+        # Approval status
+        if usage_info.get("is_approved_for_condition"):
+            summary_parts.append(f"{drug_name} is APPROVED for treating {target_condition}.")
+        else:
+            summary_parts.append(f"{drug_name} is being evaluated for repurposing to treat {target_condition}.")
+        
+        # Current uses
+        current_uses = usage_info.get("current_uses", [])
+        if current_uses:
+            summary_parts.append(f"Currently approved for: {', '.join(current_uses[:3])}.")
+        
+        # Dosage forms
+        dosage_info = usage_info.get("dosage_information", {})
+        forms = dosage_info.get("available_forms", [])
+        if forms:
+            summary_parts.append(f"Available in: {', '.join(forms[:3])} form(s).")
+        
+        # Classification
+        classification = usage_info.get("classification", "")
+        if classification:
+            summary_parts.append(f"Classification: {classification}.")
+        
+        return " ".join(summary_parts) if summary_parts else f"{drug_name} usage information for {target_condition}."
     
     # Helper methods
     def _assess_research_quality(self) -> str:

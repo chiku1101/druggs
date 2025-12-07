@@ -47,8 +47,9 @@ medicine_dataset = MedicineDatasetService()
 
 # Request/Response Models
 class RepurposingRequest(BaseModel):
-    drug_name: str
-    target_condition: str
+    drug_name: Optional[str] = None
+    target_condition: Optional[str] = None
+    analyze_ingredients: bool = False  # Case 4: Ingredient analysis mode
 
 class ResearchPaper(BaseModel):
     title: str
@@ -103,26 +104,38 @@ async def root():
 async def health_check():
     return {"status": "healthy", "ai_service": "operational"}
 
-@app.post("/api/analyze", response_model=RepurposingResponse)
+@app.post("/api/analyze")
 async def analyze_repurposing(request: RepurposingRequest):
     """
     Analyze drug repurposing potential using AI
+    
+    Cases supported:
+    - Case 1: drug_name only → Find diseases for this drug
+    - Case 2: target_condition only → Find drugs for this disease
+    - Case 3: Both drug_name and target_condition → Full analysis
+    - Case 4: drug_name + analyze_ingredients=True → Ingredient analysis
     """
     try:
-        # Validate input
-        if not request.drug_name or not request.target_condition:
+        # Validate - at least one field required
+        if not request.drug_name and not request.target_condition:
             raise HTTPException(
                 status_code=400,
-                detail="Both drug_name and target_condition are required"
+                detail="Either drug_name or target_condition is required"
             )
 
-        # Perform AI-powered analysis
+        # Perform AI-powered analysis based on case
         analysis_result = await ai_analyzer.analyze(
-            drug_name=request.drug_name,
-            target_condition=request.target_condition
+            drug_name=request.drug_name or "",
+            target_condition=request.target_condition or "",
+            analyze_ingredients=request.analyze_ingredients
         )
         
-        # Ensure all required fields are present
+        # For Cases 1, 2, 4 - return flexible response
+        case_type = analysis_result.get("case_type", "")
+        if case_type in ["CASE_1_DRUG_ONLY", "CASE_2_DISEASE_ONLY", "CASE_4_INGREDIENT_ANALYSIS"]:
+            return analysis_result
+        
+        # For Case 3 - ensure all required fields for RepurposingResponse
         if not analysis_result.get("research_papers"):
             analysis_result["research_papers"] = []
         if not analysis_result.get("clinical_trials"):
@@ -140,7 +153,7 @@ async def analyze_repurposing(request: RepurposingRequest):
                 "timeline": "36-48 months"
             }
 
-        return RepurposingResponse(**analysis_result)
+        return analysis_result
 
     except Exception as e:
         import traceback
@@ -150,6 +163,40 @@ async def analyze_repurposing(request: RepurposingRequest):
             status_code=500,
             detail=f"Analysis failed: {str(e)}"
         )
+
+# ==================== CASE-SPECIFIC ENDPOINTS ====================
+
+@app.post("/api/analyze/case1")
+async def case1_find_diseases(drug_name: str):
+    """
+    Case 1: Have drug, find potential diseases it could treat
+    """
+    result = await ai_analyzer.analyze(drug_name=drug_name, target_condition="", analyze_ingredients=False)
+    return result
+
+@app.post("/api/analyze/case2")
+async def case2_find_drugs(target_condition: str):
+    """
+    Case 2: Have disease, find best drug candidates
+    """
+    result = await ai_analyzer.analyze(drug_name="", target_condition=target_condition, analyze_ingredients=False)
+    return result
+
+@app.post("/api/analyze/case3")
+async def case3_full_analysis(drug_name: str, target_condition: str):
+    """
+    Case 3: Have both drug and disease, full repurposing analysis
+    """
+    result = await ai_analyzer.analyze(drug_name=drug_name, target_condition=target_condition, analyze_ingredients=False)
+    return result
+
+@app.post("/api/analyze/case4")
+async def case4_ingredient_analysis(drug_name: str):
+    """
+    Case 4: Analyze drug ingredients for effectiveness in other areas
+    """
+    result = await ai_analyzer.analyze(drug_name=drug_name, target_condition="", analyze_ingredients=True)
+    return result
 
 @app.get("/api/drugs/suggestions")
 async def get_drug_suggestions(query: str = ""):

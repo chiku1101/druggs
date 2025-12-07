@@ -72,22 +72,44 @@ class AIDrugRepurposingAnalyzer:
         if not self.mongodb_service.async_client:
             await self.mongodb_service.connect_async()
     
-    async def analyze(self, drug_name: str, target_condition: str) -> Dict:
+    async def analyze(self, drug_name: str, target_condition: str, 
+                      analyze_ingredients: bool = False) -> Dict:
         """
         Perform comprehensive AI-powered analysis using Multi-Agent Orchestration
+        
+        Cases:
+        - Case 1: drug_name only → Find diseases
+        - Case 2: target_condition only → Find drugs
+        - Case 3: Both → Full analysis
+        - Case 4: drug_name + analyze_ingredients → Ingredient analysis
         """
         # Ensure async MongoDB connection
         await self._ensure_async_connection()
         
+        # Determine case type for display
+        if analyze_ingredients:
+            case_display = "Case 4: INGREDIENT ANALYSIS"
+        elif drug_name and target_condition:
+            case_display = "Case 3: FULL ANALYSIS"
+        elif drug_name:
+            case_display = "Case 1: FIND DISEASES"
+        else:
+            case_display = "Case 2: FIND DRUGS"
+        
         print(f"\n{'='*60}")
         print(f"🚀 MULTI-AGENT DRUG REPURPOSING ANALYSIS")
         print(f"{'='*60}")
-        print(f"Drug: {drug_name}")
-        print(f"Condition: {target_condition}")
+        print(f"Mode: {case_display}")
+        print(f"Drug: {drug_name or 'Not specified'}")
+        print(f"Condition: {target_condition or 'Not specified'}")
         print(f"{'='*60}\n")
         
-        # Use Multi-Agent Orchestrator
-        result = await self.orchestrator.orchestrate(drug_name, target_condition)
+        # Use Multi-Agent Orchestrator with case detection
+        result = await self.orchestrator.orchestrate(
+            drug_name, 
+            target_condition,
+            analyze_ingredients=analyze_ingredients
+        )
         
         # Add medical supplies to the result
         if result.get("drug_name") and result.get("target_condition"):
