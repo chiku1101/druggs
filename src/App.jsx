@@ -4,7 +4,6 @@ import Hero from './components/Hero'
 import SearchInterface from './components/SearchInterface'
 import RepurposeabilityReport from './components/RepurposeabilityReport'
 import Features from './components/Features'
-import { generateRepurposingAnalysis } from './services/aiService'
 
 function App() {
   const [searchQuery, setSearchQuery] = useState(null)
@@ -455,16 +454,64 @@ function App() {
     setIsLoading(true)
     
     try {
-      // Use AI service for intelligent analysis
-      const medicalData = await generateRepurposingAnalysis(query.drugName, query.targetCondition)
+      // Call Python backend API
+      const response = await fetch('http://localhost:8000/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          drug_name: query.drugName,
+          target_condition: query.targetCondition
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const apiData = await response.json()
+      
+      // Transform API response to match frontend format
       setReportData({
-        drugName: query.drugName,
-        targetCondition: query.targetCondition,
-        ...medicalData
+        drugName: apiData.drug_name,
+        targetCondition: apiData.target_condition,
+        researchPapers: apiData.research_papers.map(paper => ({
+          title: paper.title,
+          authors: paper.authors,
+          journal: paper.journal,
+          year: paper.year,
+          relevance: paper.relevance,
+          summary: paper.summary
+        })),
+        clinicalTrials: apiData.clinical_trials.map(trial => ({
+          id: trial.id,
+          title: trial.title,
+          status: trial.status,
+          phase: trial.phase,
+          participants: trial.participants,
+          completionDate: trial.completion_date
+        })),
+        patents: apiData.patents.map(patent => ({
+          number: patent.number,
+          title: patent.title,
+          status: patent.status,
+          filingDate: patent.filing_date,
+          assignee: patent.assignee
+        })),
+        marketFeasibility: {
+          marketSize: apiData.market_feasibility.market_size,
+          growthRate: apiData.market_feasibility.growth_rate,
+          competition: apiData.market_feasibility.competition,
+          regulatoryPath: apiData.market_feasibility.regulatory_path,
+          timeline: apiData.market_feasibility.timeline
+        },
+        repurposeabilityScore: apiData.repurposeability_score,
+        recommendations: apiData.recommendations
       })
     } catch (error) {
-      console.error('Error generating analysis:', error)
-      // Fallback to static data if AI service fails
+      console.error('Error calling backend API:', error)
+      // Fallback to static data if API fails
       const medicalData = getMedicallyAccurateData(query.drugName, query.targetCondition)
       setReportData({
         drugName: query.drugName,
