@@ -51,6 +51,24 @@ class RepurposingRequest(BaseModel):
     target_condition: Optional[str] = None
     analyze_ingredients: bool = False  # Case 4: Ingredient analysis mode
 
+# Case-specific request models
+class Case1Request(BaseModel):
+    """Case 1: Have drug, find diseases"""
+    drug_name: str
+
+class Case2Request(BaseModel):
+    """Case 2: Have disease, find drugs"""
+    target_condition: str
+
+class Case3Request(BaseModel):
+    """Case 3: Have both drug and disease"""
+    drug_name: str
+    target_condition: str
+
+class Case4Request(BaseModel):
+    """Case 4: Ingredient analysis"""
+    drug_name: str
+
 class ResearchPaper(BaseModel):
     title: str
     authors: str
@@ -167,35 +185,72 @@ async def analyze_repurposing(request: RepurposingRequest):
 # ==================== CASE-SPECIFIC ENDPOINTS ====================
 
 @app.post("/api/analyze/case1")
-async def case1_find_diseases(drug_name: str):
+async def case1_find_diseases(request: Case1Request):
     """
     Case 1: Have drug, find potential diseases it could treat
+    
+    Request body:
+    {
+        "drug_name": "string"
+    }
     """
-    result = await ai_analyzer.analyze(drug_name=drug_name, target_condition="", analyze_ingredients=False)
+    result = await ai_analyzer.analyze(
+        drug_name=request.drug_name, 
+        target_condition="", 
+        analyze_ingredients=False
+    )
     return result
 
 @app.post("/api/analyze/case2")
-async def case2_find_drugs(target_condition: str):
+async def case2_find_drugs(request: Case2Request):
     """
     Case 2: Have disease, find best drug candidates
+    
+    Request body:
+    {
+        "target_condition": "string"
+    }
     """
-    result = await ai_analyzer.analyze(drug_name="", target_condition=target_condition, analyze_ingredients=False)
+    result = await ai_analyzer.analyze(
+        drug_name="", 
+        target_condition=request.target_condition, 
+        analyze_ingredients=False
+    )
     return result
 
 @app.post("/api/analyze/case3")
-async def case3_full_analysis(drug_name: str, target_condition: str):
+async def case3_full_analysis(request: Case3Request):
     """
     Case 3: Have both drug and disease, full repurposing analysis
+    
+    Request body:
+    {
+        "drug_name": "string",
+        "target_condition": "string"
+    }
     """
-    result = await ai_analyzer.analyze(drug_name=drug_name, target_condition=target_condition, analyze_ingredients=False)
+    result = await ai_analyzer.analyze(
+        drug_name=request.drug_name, 
+        target_condition=request.target_condition, 
+        analyze_ingredients=False
+    )
     return result
 
 @app.post("/api/analyze/case4")
-async def case4_ingredient_analysis(drug_name: str):
+async def case4_ingredient_analysis(request: Case4Request):
     """
     Case 4: Analyze drug ingredients for effectiveness in other areas
+    
+    Request body:
+    {
+        "drug_name": "string"
+    }
     """
-    result = await ai_analyzer.analyze(drug_name=drug_name, target_condition="", analyze_ingredients=True)
+    result = await ai_analyzer.analyze(
+        drug_name=request.drug_name, 
+        target_condition="", 
+        analyze_ingredients=True
+    )
     return result
 
 @app.get("/api/drugs/suggestions")
